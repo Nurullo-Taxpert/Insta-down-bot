@@ -1,0 +1,122 @@
+import time
+import logging
+from typing import Dict, Optional, Any
+from google import genai
+from google.genai import types
+
+from config import GEMINI_API_KEY, GEMINI_MODEL
+
+logger = logging.getLogger(__name__)
+
+SYSTEM_INSTRUCTION = (
+    "Siz foydali, aqlli, samimiy va xushmuomala sun'iy intellekt (Gemini) yordamchisisiz. "
+    "Foydalanuvchilarning savollariga aniq, to'liq, tushunarli va chiroyli javob bering. "
+    "O'zbek tilidagi savollarga o'zbek tilida, rus tilidagilarga rus tilida, boshqa tillarda bo'lsa o'sha tilda javob bering. "
+    "Javoblaringizda matnni o'qishga qulay qilib, kerak bo'lganda punktlar, ro'yxatlar va abzaslar bilan taqdim eting."
+)
+
+
+class GeminiService:
+    def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
+        self.api_key = api_key or GEMINI_API_KEY
+        self.model_name = model_name or GEMINI_MODEL or "gemini-3.8-flash"
+        self._client: Optional[genai.Client] = None
+        self._chats: Dict[int, Any] = {}
+        self._chat_timestamps: Dict[int, float] = {}
+
+    @property
+    def client(self) -> Optional[genai.Client]:
+        if not self.api_key:
+            return None
+        if self._client is None:
+            self._client = genai.Client(api_key=self.api_key)
+        return self._client
+
+    def is_configured(self) -> bool:
+        return bool(self.api_key and self.api_key.strip())
+
+    def reset_chat(self, user_id: int):
+        """Foydalanuvchining oldingi suhbat tarixini tozalaydi."""
+        self._chats.pop(user_id, None)
+        self._chat_timestamps.pop(user_id, None)
+
+    def _cleanup_old_sessions(self, max_idle_seconds: int = 7200):
+        """2 soatdan ortiq faol bo'lmagan suhbatlarni xotiradan tozalaydi."""
+        now = time.time()
+        expired = [
+            uid for uid, ts in self._chat_timestamps.items()
+            if now - ts > max_idle_seconds
+        ]
+        for uid in expired:
+            self._chats.pop(uid, None)
+            self._chat_timestamps.pop(uid, None)
+
+    async def _get_or_create_chat(self, user_id: int):
+        self._cleanup_old_sessions()
+
+        if user_id in self._chats:
+            self._chat_timestamps[user_id] = time.time()
+            return self._chats[user_id]
+
+        config = types.GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION,
+            temperature=0.7,
+        )
+
+        chat = self.client.aio.chats.create(
+            model=self.model_name,
+            config=config,
+        )
+        self._chats[user_id] = chat
+        self._chat_timestamps[user_id] = time.time()
+        return chat
+
+    async def ask(self, user_id: int, message_text: str) -> str:
+        """
+        Foydalanuvchi xabarini Gemini modeliga yuborib javob oladi.
+        Kontekst (suhbat tarixi) saqlanadi.
+        """
+        if not self.is_configured():
+            return (
+                "⚠️ <b>Gemini API kaliti topilmadi!</b>\n\n"
+                "AI Chat ishlashi uchun <code>.env</code> fayliga <code>GEMINI_API_KEY</code> kalitini qo'shish lozim.\n\n"
+                "🔑 <i>API kalitni bepul olish:</i> <a href='https://aistudio.google.com'>Google AI Studio</a>"
+            )
+
+        try:
+            chat = await self._get_or_create_chat(user_id)
+            response = await chat.send_message(message_text)
+
+            if response and response.text:
+                return response.text.strip()
+            return "Kechirasiz, javob matnini olib bo'lmadi. Qaytadan urinib ko'ring."
+
+        except Exception as e:
+            err_msg = str(e).lower()
+            logger.error(f"Gemini xatoligi (User: {user_id}): {e}", exc_info=True)
+
+            if "api_key" in err_msg or "invalid api key" in err_msg or "unauthenticated" in err_msg:
+                return (
+                    "❌ <b>Gemini API kaliti noto'g'ri yoki yaroqsiz!</b>\n\n"
+                    "Iltimos, <code>.env</code> faylidagi <code>GEMINI_API_KEY</code> ni tekshiring."
+                )
+            elif "quota" in err_msg or "resource_exhausted" in err_msg or "429" in err_msg:
+                return (
+                    "⏳ <b>Gemini so'rovlar limiti tugadi!</b>\n"
+                    "Biroz kuting va yana urinib ko'ring."
+                )
+            elif "safety" in err_msg or "blocked" in err_msg:
+                return (
+                    "🛡 <b>Kechirasiz, xavfsizlik filtri sababli bu savolga javob berilmadi.</b>\n"
+                    "Iltimos, savolni boshqacharoq shaklda berib ko'ring."
+                )
+            else:
+                return (
+                    f"❌ <b>Sun'iy intellekt javob berishda xatolik yuz berdi:</b>\n"
+                    f"<code>{str(e)[:150]}</code>\n\n"
+                    "Birozdan so'ng qayta urinib ko'ring yoki «🔄 Yangi suhbat» tugmasini bosing."
+                )
+
+
+# Global singleton nusxa
+ai_service = GeminiService()

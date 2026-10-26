@@ -1,0 +1,24 @@
+# Muhit o'zgaruvchilari va maxfiy kalitlar
+.env
+
+# Vaqtinchalik yuklab olingan videolar
+downloads/
+
+# Instagram sessiya va kuki fayllari
+cookies.txt
+
+# Python va virtual muhit
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# IDE va tahrirlovchilar
+.vscode/
+.idea/
+*.swp
