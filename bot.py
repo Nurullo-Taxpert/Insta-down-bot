@@ -385,11 +385,21 @@ async def handle_round_callback(callback: CallbackQuery):
             return
 
         await bot.send_chat_action(chat_id=callback.message.chat.id, action=ChatAction.UPLOAD_VIDEO_NOTE)
-        await callback.message.reply_video_note(
-            video_note=types.FSInputFile(round_path),
-            length=480,
-            request_timeout=180
-        )
+        try:
+            await callback.message.reply_video_note(
+                video_note=types.FSInputFile(round_path),
+                length=480,
+                request_timeout=180
+            )
+        except Exception as e:
+            if "VOICE_MESSAGES_FORBIDDEN" in str(e):
+                await callback.message.reply(
+                    "⚠️ <b>Dumaloq videoni yuborib bo'lmadi!</b>\n\n"
+                    "Sizning Telegram profilingizda ovozli/dumaloq xabarlarni qabul qilish cheklangan.\n"
+                    "<i>Telegram Sozlamalari -> Maxfiylik (Privacy) -> Ovozli xabarlar (Voice Messages)</i> bo'limida botlarga ruxsat bering."
+                )
+            else:
+                raise e
         await progress_msg.delete()
 
     except Exception as e:
@@ -438,11 +448,21 @@ async def handle_incoming_video(message: types.Message):
         await status_msg.edit_text("📤 <b>Dumaloq video yuborilmoqda...</b>")
         await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_VIDEO_NOTE)
 
-        await message.reply_video_note(
-            video_note=types.FSInputFile(str(output_file)),
-            length=480,
-            request_timeout=180
-        )
+        try:
+            await message.reply_video_note(
+                video_note=types.FSInputFile(str(output_file)),
+                length=480,
+                request_timeout=180
+            )
+        except Exception as e:
+            if "VOICE_MESSAGES_FORBIDDEN" in str(e):
+                await message.reply(
+                    "⚠️ <b>Dumaloq videoni yuborib bo'lmadi!</b>\n\n"
+                    "Sizning Telegram profilingizda ovozli/dumaloq xabarlarni qabul qilish cheklangan.\n"
+                    "<i>Telegram Sozlamalari -> Maxfiylik (Privacy) -> Ovozli xabarlar (Voice Messages)</i> bo'limida botlarga ruxsat bering."
+                )
+            else:
+                raise e
         await status_msg.delete()
 
     except Exception as e:
