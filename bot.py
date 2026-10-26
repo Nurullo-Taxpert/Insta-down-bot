@@ -22,6 +22,8 @@ from aiogram.types import (
     Message
 )
 
+from aiogram.client.session.aiohttp import AiohttpSession
+
 from config import BOT_TOKEN, DOWNLOAD_DIR
 from downloader import MediaDownloader
 from ai_service import ai_service
@@ -36,8 +38,12 @@ logger = logging.getLogger(__name__)
 if not BOT_TOKEN:
     raise ValueError("DIQQAT: BOT_TOKEN topilmadi! .env faylini tekshiring.")
 
+# Katta videolarni (50MB gacha) uzatish uchun 300 soniyalik (5 daqiqa) timeout
+session = AiohttpSession(timeout=300)
+
 bot = Bot(
     token=BOT_TOKEN,
+    session=session,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 dp = Dispatcher()
@@ -334,7 +340,8 @@ async def handle_media_link(message: types.Message):
             width=result.get("width"),
             height=result.get("height"),
             supports_streaming=True,
-            reply_markup=keyboard
+            reply_markup=keyboard,
+            request_timeout=300
         )
 
         await status_msg.delete()
@@ -380,7 +387,8 @@ async def handle_round_callback(callback: CallbackQuery):
         await bot.send_chat_action(chat_id=callback.message.chat.id, action=ChatAction.UPLOAD_VIDEO_NOTE)
         await callback.message.reply_video_note(
             video_note=types.FSInputFile(round_path),
-            length=480
+            length=480,
+            request_timeout=180
         )
         await progress_msg.delete()
 
@@ -432,7 +440,8 @@ async def handle_incoming_video(message: types.Message):
 
         await message.reply_video_note(
             video_note=types.FSInputFile(str(output_file)),
-            length=480
+            length=480,
+            request_timeout=180
         )
         await status_msg.delete()
 
