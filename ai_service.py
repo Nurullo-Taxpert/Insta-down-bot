@@ -1,5 +1,6 @@
 import html
 import time
+import asyncio
 import logging
 from typing import Dict, Optional, Any
 from google import genai
@@ -11,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 # Asosiy model band bo'lsa (503) ishlatiladigan zaxira model
 FALLBACK_MODEL = "gemini-flash-lite-latest"
-REQUEST_TIMEOUT_MS = 30_000
+REQUEST_TIMEOUT_MS = 90_000
+PRIMARY_TIMEOUT_S = 40
+FALLBACK_TIMEOUT_S = 90
 
 SYSTEM_INSTRUCTION = (
     "Siz foydali, aqlli, samimiy va xushmuomala sun'iy intellekt (Gemini) yordamchisisiz. "
@@ -82,15 +85,21 @@ class GeminiService:
     async def _send_with_fallback(self, user_id: int, chat, message_text: str):
         """Asosiy model band (503) yoki javob bermasa, suhbat tarixini saqlagan holda zaxira modelga o'tadi."""
         try:
-            return await chat.send_message(message_text)
+            # Asosiy modelni uzoq kutmaymiz: SDK ichki qayta urinishlari bilan birga ham shu chegarada to'xtaydi
+            return await asyncio.wait_for(chat.send_message(message_text), timeout=PRIMARY_TIMEOUT_S)
         except Exception as e:
-            err = str(e).lower()
-            busy = "503" in err or "unavailable" in err or "overloaded" in err or "timeout" in err or "timed out" in err
+            err = str(e).lower() or type(e).__name__.lower()
+            busy = isinstance(e, asyncio.TimeoutError) or any(
+                k in err for k in ("503", "504", "unavailable", "overloaded", "deadline", "timeout", "timed out")
+            )
             if not busy or self.model_name == FALLBACK_MODEL:
                 raise
-            logger.warning(f"{self.model_name} band, {FALLBACK_MODEL} ga o'tilmoqda: {e}")
+            logger.warning(f"{self.model_name} band, {FALLBACK_MODEL} ga o'tilmoqda: {e!r}")
             fallback = self._create_chat(FALLBACK_MODEL, history=chat.get_history())
-            response = await fallback.send_message(message_text)
+            try:
+                response = await asyncio.wait_for(fallback.send_message(message_text), timeout=FALLBACK_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                raise TimeoutError("Gemini timeout")
             self._chats[user_id] = fallback
             return response
 
@@ -128,7 +137,7 @@ class GeminiService:
                     "⏳ <b>Gemini so'rovlar limiti tugadi!</b>\n"
                     "Biroz kuting va yana urinib ko'ring."
                 )
-            elif "503" in err_msg or "unavailable" in err_msg or "timeout" in err_msg or "timed out" in err_msg:
+            elif any(k in err_msg for k in ("503", "504", "unavailable", "deadline", "timeout", "timed out")):
                 return (
                     "⏳ <b>Gemini serverlari hozir juda band.</b>\n"
                     "Bir necha daqiqadan so'ng qayta urinib ko'ring."
