@@ -137,6 +137,13 @@ class MediaDownloader:
                 msg = "Video topilmadi yoki muallif tomonidan o'chirilgan."
             elif "private" in error_text:
                 msg = "Ushbu video yopiq (private) hisobdan olingan."
+            elif "not made this video available in your country" in error_text or "geo" in error_text:
+                msg = "Bu video server joylashgan davlatda cheklangan, uni yuklab bo'lmaydi."
+            elif "rate-limit" in error_text or "429" in error_text or "403" in error_text or "401" in error_text:
+                msg = (
+                    f"{platform_name} vaqtincha so'rovlarni cheklab qo'ydi. "
+                    "Birozdan keyin qayta urinib ko'ring."
+                )
             else:
                 msg = f"Yuklab olishda xatolik yuz berdi: {str(e)[:150]}"
             return {"success": False, "error": msg}

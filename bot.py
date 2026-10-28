@@ -3,6 +3,7 @@ import re
 import time
 import uuid
 import asyncio
+import html
 import logging
 from pathlib import Path
 from typing import Dict, List
@@ -297,7 +298,7 @@ async def handle_media_link(message: types.Message):
 
         if not result.get("success"):
             error_reason = result.get("error", "Noma'lum xatolik yuz berdi.")
-            await status_msg.edit_text(f"❌ <b>Xatolik yuz berdi:</b>\n\n{error_reason}")
+            await status_msg.edit_text(f"❌ <b>Xatolik yuz berdi:</b>\n\n{html.escape(error_reason)}")
             return
 
         file_path = result["file_path"]
@@ -350,7 +351,7 @@ async def handle_media_link(message: types.Message):
 
     except Exception as e:
         logger.error(f"Yuklashda xatolik yuz berdi: {e}", exc_info=True)
-        await status_msg.edit_text(f"❌ <b>Xatolik yuz berdi:</b>\n<code>{str(e)[:150]}</code>")
+        await status_msg.edit_text(f"❌ <b>Xatolik yuz berdi:</b>\n<code>{html.escape(str(e)[:150])}</code>")
 
 
 @dp.callback_query(F.data.startswith("round:"))
@@ -382,7 +383,7 @@ async def handle_round_callback(callback: CallbackQuery):
 
         if not convert_res.get("success"):
             err = convert_res.get("error", "Aylantirib bo'lmadi.")
-            await progress_msg.edit_text(f"❌ <b>Xatolik:</b>\n{err}")
+            await progress_msg.edit_text(f"❌ <b>Xatolik:</b>\n{html.escape(err)}")
             return
 
         await bot.send_chat_action(chat_id=callback.message.chat.id, action=ChatAction.UPLOAD_VIDEO_NOTE)
@@ -405,7 +406,7 @@ async def handle_round_callback(callback: CallbackQuery):
 
     except Exception as e:
         logger.error(f"Dumaloq videoga aylantirishda xatolik: {e}", exc_info=True)
-        await progress_msg.edit_text(f"❌ <b>Aylantirishda xatolik:</b>\n<code>{str(e)[:150]}</code>")
+        await progress_msg.edit_text(f"❌ <b>Aylantirishda xatolik:</b>\n<code>{html.escape(str(e)[:150])}</code>")
 
     finally:
         if Path(round_path).exists():
@@ -443,7 +444,7 @@ async def handle_incoming_video(message: types.Message):
 
         if not convert_res.get("success"):
             err = convert_res.get("error", "Videoni aylantirib bo'lmadi.")
-            await status_msg.edit_text(f"❌ <b>Xatolik:</b>\n{err}")
+            await status_msg.edit_text(f"❌ <b>Xatolik:</b>\n{html.escape(err)}")
             return
 
         await status_msg.edit_text("📤 <b>Dumaloq video yuborilmoqda...</b>")
@@ -468,7 +469,7 @@ async def handle_incoming_video(message: types.Message):
 
     except Exception as e:
         logger.error(f"Foydalanuvchi videosini aylantirishda xatolik: {e}", exc_info=True)
-        await status_msg.edit_text(f"❌ <b>Xatolik yuz berdi:</b>\n<code>{str(e)[:150]}</code>")
+        await status_msg.edit_text(f"❌ <b>Xatolik yuz berdi:</b>\n<code>{html.escape(str(e)[:150])}</code>")
 
     finally:
         for f in (input_file, output_file):
