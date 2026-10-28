@@ -23,6 +23,7 @@ from aiogram.types import (
 )
 
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiohttp import web
 
 from config import BOT_TOKEN, DOWNLOAD_DIR
 from downloader import MediaDownloader
@@ -489,8 +490,30 @@ async def handle_other_messages(message: types.Message):
     )
 
 
+async def start_health_check_server():
+    """Render Web Service uchun portni tinglovchi mini health-check server."""
+    port = int(os.environ.get("PORT", 8080))
+    app = web.Application()
+
+    async def ping(request):
+        return web.Response(text="Bot is running! 🚀", content_type="text/plain")
+
+    app.router.add_get("/", ping)
+    app.router.add_get("/health", ping)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Render health-check server {port}-portda ishga tushirildi.")
+
+
 async def main():
     logger.info("Bot ishga tushmoqda...")
+    # Render Web Service port talab qiladi (PORT o'zgaruvchisi mavjud bo'lsa)
+    if "PORT" in os.environ:
+        await start_health_check_server()
+
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
