@@ -1,3 +1,4 @@
+import html
 import time
 import logging
 from typing import Dict, Optional, Any
@@ -7,6 +8,10 @@ from google.genai import types
 from config import GEMINI_API_KEY, GEMINI_MODEL
 
 logger = logging.getLogger(__name__)
+
+# Asosiy model band bo'lsa (503) ishlatiladigan zaxira model
+FALLBACK_MODEL = "gemini-flash-lite-latest"
+REQUEST_TIMEOUT_MS = 30_000
 
 SYSTEM_INSTRUCTION = (
     "Siz foydali, aqlli, samimiy va xushmuomala sun'iy intellekt (Gemini) yordamchisisiz. "
@@ -29,7 +34,11 @@ class GeminiService:
         if not self.api_key:
             return None
         if self._client is None:
-            self._client = genai.Client(api_key=self.api_key)
+            # Timeout bo'lmasa, Gemini band bo'lganda so'rov cheksiz osilib qoladi
+            self._client = genai.Client(
+                api_key=self.api_key,
+                http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_MS),
+            )
         return self._client
 
     def is_configured(self) -> bool:
@@ -58,18 +67,32 @@ class GeminiService:
             self._chat_timestamps[user_id] = time.time()
             return self._chats[user_id]
 
+        chat = self._create_chat(self.model_name)
+        self._chats[user_id] = chat
+        self._chat_timestamps[user_id] = time.time()
+        return chat
+
+    def _create_chat(self, model: str, history: Optional[list] = None):
         config = types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION,
             temperature=0.7,
         )
+        return self.client.aio.chats.create(model=model, config=config, history=history)
 
-        chat = self.client.aio.chats.create(
-            model=self.model_name,
-            config=config,
-        )
-        self._chats[user_id] = chat
-        self._chat_timestamps[user_id] = time.time()
-        return chat
+    async def _send_with_fallback(self, user_id: int, chat, message_text: str):
+        """Asosiy model band (503) yoki javob bermasa, suhbat tarixini saqlagan holda zaxira modelga o'tadi."""
+        try:
+            return await chat.send_message(message_text)
+        except Exception as e:
+            err = str(e).lower()
+            busy = "503" in err or "unavailable" in err or "overloaded" in err or "timeout" in err or "timed out" in err
+            if not busy or self.model_name == FALLBACK_MODEL:
+                raise
+            logger.warning(f"{self.model_name} band, {FALLBACK_MODEL} ga o'tilmoqda: {e}")
+            fallback = self._create_chat(FALLBACK_MODEL, history=chat.get_history())
+            response = await fallback.send_message(message_text)
+            self._chats[user_id] = fallback
+            return response
 
     async def ask(self, user_id: int, message_text: str) -> str:
         """
@@ -85,7 +108,7 @@ class GeminiService:
 
         try:
             chat = await self._get_or_create_chat(user_id)
-            response = await chat.send_message(message_text)
+            response = await self._send_with_fallback(user_id, chat, message_text)
 
             if response and response.text:
                 return response.text.strip()
@@ -105,6 +128,11 @@ class GeminiService:
                     "⏳ <b>Gemini so'rovlar limiti tugadi!</b>\n"
                     "Biroz kuting va yana urinib ko'ring."
                 )
+            elif "503" in err_msg or "unavailable" in err_msg or "timeout" in err_msg or "timed out" in err_msg:
+                return (
+                    "⏳ <b>Gemini serverlari hozir juda band.</b>\n"
+                    "Bir necha daqiqadan so'ng qayta urinib ko'ring."
+                )
             elif "safety" in err_msg or "blocked" in err_msg:
                 return (
                     "🛡 <b>Kechirasiz, xavfsizlik filtri sababli bu savolga javob berilmadi.</b>\n"
@@ -113,7 +141,7 @@ class GeminiService:
             else:
                 return (
                     f"❌ <b>Sun'iy intellekt javob berishda xatolik yuz berdi:</b>\n"
-                    f"<code>{str(e)[:150]}</code>\n\n"
+                    f"<code>{html.escape(str(e)[:150])}</code>\n\n"
                     "Birozdan so'ng qayta urinib ko'ring yoki «🔄 Yangi suhbat» tugmasini bosing."
                 )
 
