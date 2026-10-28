@@ -24,7 +24,7 @@ from aiogram.types import (
 )
 
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiohttp import web
+from aiohttp import web, ClientSession, ClientTimeout
 
 from config import BOT_TOKEN, DOWNLOAD_DIR
 from downloader import MediaDownloader
@@ -509,11 +509,28 @@ async def start_health_check_server():
     logger.info(f"Render health-check server {port}-portda ishga tushirildi.")
 
 
+async def keep_alive(url: str, interval: int = 600):
+    """Render bepul tarifida 15 daqiqa so'rovsiz qolgan servis uxlab qoladi.
+    Shuning uchun har 10 daqiqada o'zimizning tashqi manzilimizga so'rov yuboramiz."""
+    async with ClientSession() as session:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                async with session.get(url, timeout=ClientTimeout(total=30)) as resp:
+                    logger.info(f"Keep-alive ping: {resp.status}")
+            except Exception as e:
+                logger.warning(f"Keep-alive ping xatosi: {e}")
+
+
 async def main():
     logger.info("Bot ishga tushmoqda...")
     # Render Web Service port talab qiladi (PORT o'zgaruvchisi mavjud bo'lsa)
     if "PORT" in os.environ:
         await start_health_check_server()
+
+    # RENDER_EXTERNAL_URL ni Render o'zi avtomatik beradi
+    external_url = os.environ.get("RENDER_EXTERNAL_URL")
+    keep_alive_task = asyncio.create_task(keep_alive(external_url)) if external_url else None
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
